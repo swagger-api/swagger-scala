@@ -1,24 +1,20 @@
 package com.wordnik
 package swagger
 
-import java.util.{Date => JDate}
-import com.typesafe.scalalogging.Logger
-import org.json4s._
-import org.joda.time._
-import format.ISODateTimeFormat
-import org.slf4j.LoggerFactory
-import collection.JavaConverters._
-import java.util.concurrent.ConcurrentHashMap
-import reflect._
 import java.lang.reflect.Field
-import com.wordnik.swagger.runtime.annotations.{ApiModel, ApiModelProperty}
+import java.util.{Date => JDate}
+
+import com.wordnik.swagger.reflect._
+import com.wordnik.swagger.runtime.annotations.{ApiEnum, ApiModel, ApiModelProperty}
+import org.joda.time._
+import org.joda.time.format.ISODateTimeFormat
 
 trait SwaggerEngine[T <: SwaggerApi[_]] {
   def swaggerVersion: String 
   def apiVersion: String
   def apiInfo: ApiInfo
 
-  private[swagger] val _docs = new ConcurrentHashMap[String, T]().asScala
+  private[swagger] val _docs = scala.collection.concurrent.TrieMap.empty[String, T]
 
   private[this] var _authorizations = List.empty[AuthorizationType]
   def authorizations = _authorizations
@@ -97,14 +93,15 @@ object Swagger {
       val descr = Reflector.describe(klass).asInstanceOf[ClassDescriptor]
       val apiModel = Option(klass.erasure.getAnnotation(classOf[ApiModel]))
 
-      val fields = klass.erasure.getDeclaredFields.toList collect {
-        case f: Field if f.getAnnotation(classOf[ApiModelProperty]) != null =>
-          val annot = f.getAnnotation(classOf[ApiModelProperty])
-          val asModelProperty = toModelProperty(descr, Some(annot.position()), annot.required(), annot.description().blankOption, annot.allowableValues())_
-          descr.properties.find(_.mangledName == f.getName) map asModelProperty
-
+      val fields = klass.erasure.getDeclaredFields.toList map {
         case f: Field =>
-          val asModelProperty = toModelProperty(descr)_
+          val asModelProperty = if (f.getAnnotation(classOf[ApiModelProperty]) != null) {
+            val annot = f.getAnnotation(classOf[ApiModelProperty])
+            toModelProperty(descr, Some(annot.position()), annot.required(), annot.description().blankOption, annot.allowableValues())_
+          } else {
+            val annot = f.getAnnotation(classOf[ApiEnum])
+            toModelProperty(descr, allowableValues = if (annot != null) annot.values().mkString(",") else "")_
+          }
           descr.properties.find(_.mangledName == f.getName) map asModelProperty
 
       }
@@ -129,7 +126,7 @@ object Swagger {
         AllowableValues.AnyValue
       } else {
         val params = csvString.split(",").toList
-        implicit val format = DefaultJsonFormats.GenericFormat(DefaultReaders.StringReader, DefaultWriters.StringWriter)
+//        implicit val format = DefaultJsonFormats.GenericFormat(DefaultReaders.StringReader, DefaultWriters.StringWriter)
         paramType match {
           case null => AllowableValues.AllowableValuesList(params)
           case "string" => AllowableValues.AllowableValuesList(params)
