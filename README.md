@@ -21,7 +21,7 @@ trait ScalatraSwaggerEngine[A <: SwaggerApi[_]] extends SwaggerEngine[A] {
 /**
  * An instance of this class is used to hold the API documentation.
  */
-class Swagger(val apiVersion: String, val apiInfo: ApiInfo) extends ScalatraSwaggerEngine[Api] {
+class MySwagger(val apiVersion: String, val apiInfo: ApiInfo) extends ScalatraSwaggerEngine[Api] {
   
   val swaggerVersion = com.wordnik.swagger.Swagger.SpecVersion
   
@@ -57,16 +57,15 @@ For example to render the index json you can use this method:
 
 ```scala
 implicit formats: SwaggerFormats  = com.wordnik.swagger.SwaggerSerializers.defaultFormats
-val mySwagger = new Swagger(apiVersion, apiInfo)
+val mySwagger = new MySwagger(apiVersion, apiInfo)
 Swagger.renderIndex(mySwagger, path => "/" + path)
 ```
 
 And to render the description of a single doc you can use this:
  
 ```scala
-implicit formats: SwaggerFormats = com.wordnik.swagger.SwaggerSerializers.defaultFormats
 implicit formats: SwaggerFormats  = com.wordnik.swagger.SwaggerSerializers.defaultFormats
-val mySwagger = new Swagger(apiVersion, apiInfo)
+val mySwagger = new MySwagger(apiVersion, apiInfo)
 mySwagger.doc("/users").fold(JNothing)(Swagger.renderDoc(mySwagger, _, "/")) 
 ```
 
