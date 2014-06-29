@@ -23,3 +23,5 @@ libraryDependencies += "joda-time" % "joda-time" % "2.3" % "provided"
 libraryDependencies += "org.joda" % "joda-convert" % "1.6" % "provided"
 
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.1.2" % "provided"
+
+libraryDependencies += "org.specs2" % "specs2_2.11" % "2.3.12" % "test"
