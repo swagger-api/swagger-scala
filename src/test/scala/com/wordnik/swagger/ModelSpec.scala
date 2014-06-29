@@ -2,7 +2,7 @@ package com.wordnik.swagger
 
 import AllowableValues.{AllowableRangeValues, AllowableValuesList}
 import annotations._
-import reflect.Reflector
+import org.json4s.reflect.Reflector
 import org.specs2.mutable.Specification
 
 object ModelSpec {

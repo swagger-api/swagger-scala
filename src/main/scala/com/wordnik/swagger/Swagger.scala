@@ -1,29 +1,29 @@
 package com.wordnik
 package swagger
 
-import java.lang.reflect.Field
+import java.lang.reflect.{Field,Type}
 import java.util.{Date => JDate}
 
 import com.wordnik.swagger.SwaggerSerializers.SwaggerFormats
-import com.wordnik.swagger.reflect._
 import com.wordnik.swagger.runtime.annotations.{ApiEnum, ApiModel, ApiModelProperty}
 import org.joda.time._
 import org.joda.time.format.ISODateTimeFormat
+import org.json4s.JsonDSL._
 import org.json4s._
-import JsonDSL._
+import org.json4s.reflect.{PropertyDescriptor, ClassDescriptor, Reflector, ScalaType}
 
 trait SwaggerEngine[T <: SwaggerApi[_]] {
   def swaggerVersion: String 
   def apiVersion: String
   def apiInfo: ApiInfo
 
-  private[swagger] val _docs = scala.collection.concurrent.TrieMap.empty[String, T]
+  protected val _docs = scala.collection.concurrent.TrieMap.empty[String, T]
 
   private[this] var _authorizations = List.empty[AuthorizationType]
   def authorizations = _authorizations
   def addAuthorization(auth: AuthorizationType) { _authorizations ::= auth }
 
-  def docs = _docs.values
+  def docs: List[T] = _docs.values.toList
 
   /**
    * Returns the documentation for the given path.
@@ -76,6 +76,7 @@ object Swagger {
   }
 
   def collectModels[T: Manifest](alreadyKnown: Set[Model]): Set[Model] = collectModels(Reflector.scalaTypeOf[T], alreadyKnown)
+
   private[swagger] def collectModels(tpe: ScalaType, alreadyKnown: Set[Model], known: Set[ScalaType] = Set.empty): Set[Model] = {
     if (tpe.isMap) collectModels(tpe.typeArgs.head, alreadyKnown, tpe.typeArgs.toSet) ++ collectModels(tpe.typeArgs.last, alreadyKnown, tpe.typeArgs.toSet)
     else if (tpe.isCollection || tpe.isOption) {
@@ -84,13 +85,13 @@ object Swagger {
       else Set.empty
     }
     else {
-      if (alreadyKnown.map(_.id).contains(tpe.simpleName)) Set.empty
+      if (alreadyKnown.map(_.id).contains(tpe.simpleName) || Reflector.isPrimitive(tpe.erasure, Set(classOf[Char], classOf[Unit]))) Set.empty
       else {
         val descr = Reflector.describe(tpe)
         descr match {
           case descriptor: ClassDescriptor =>
-            val ctorModels = descriptor.mostComprehensive.filterNot(_.isPrimitive).toVector
-            val propModels = descriptor.properties.filterNot(p => p.isPrimitive || ctorModels.exists(_.name == p.name))
+            val ctorModels = descriptor.mostComprehensive.filterNot(_.argType.isPrimitive).toVector
+            val propModels = descriptor.properties.filterNot(p => p.returnType.isPrimitive || ctorModels.exists(_.name == p.name))
             val subModels = (ctorModels.map(_.argType) ++ propModels.map(_.returnType)).toSet -- known
             val topLevel = for {
               tl <- subModels + descriptor.erasure
@@ -123,8 +124,12 @@ object Swagger {
 //    if (descr.simpleName == "Pet") println("The property is: " + mp)
     prop.name -> mp
   }
+
+  private[this] val defaultExcluded = Set(classOf[Nothing], classOf[Null])
+  private[this] def isExcluded(t: Type, excludes: Seq[Type] = Nil) = (defaultExcluded ++ excludes) contains t
+
   def modelToSwagger(klass: ScalaType): Option[Model] = {
-    if (Reflector.isPrimitive(klass.erasure) || Reflector.isExcluded(klass.erasure, excludes.toSeq)) None
+    if (Reflector.isPrimitive(klass.erasure) || isExcluded(klass.erasure, excludes.toSeq)) None
     else {
       val name = klass.simpleName
 
@@ -317,7 +322,6 @@ object DataType {
   private[swagger] def fromManifest[T](implicit mf: Manifest[T]): DataType = {
     fromScalaType(Reflector.scalaTypeOf[T])
   }
-  private[swagger] def fromClass(klass: Class[_]): DataType = fromScalaType(Reflector.scalaTypeOf(klass))
   private[swagger] def fromScalaType(st: ScalaType): DataType = {
     val klass = if (st.isOption && st.typeArgs.size > 0) st.typeArgs.head.erasure else st.erasure
     if (classOf[Unit].isAssignableFrom(klass) || classOf[Void].isAssignableFrom(klass)) this.Void

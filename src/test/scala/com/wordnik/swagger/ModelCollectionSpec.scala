@@ -1,7 +1,7 @@
 package com.wordnik.swagger
 
+import org.json4s.reflect.Reflector
 import org.specs2.mutable.Specification
-import reflect.Reflector
 import java.util.Date
 
 object ModelCollectionSpec {
