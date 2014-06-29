@@ -23,5 +23,9 @@ package object swagger {
     def isBlank = s == null || s.trim.isEmpty
     def nonBlank = !isBlank
     def blankOption = if (isBlank) None else Some(s)
+    def toCheckboxBool = s.toUpperCase match {
+      case "ON" | "TRUE" | "OK" | "1" | "CHECKED" | "YES" | "ENABLE" | "ENABLED" => true
+      case _ => false
+    }
   }
 }

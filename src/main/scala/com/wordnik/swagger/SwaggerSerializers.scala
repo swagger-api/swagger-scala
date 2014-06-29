@@ -149,6 +149,12 @@ object SwaggerSerializers {
   val defaultFormats: SwaggerFormats =
     formats ++ Seq(new OperationSerializer, new EndpointSerializer, new ApiSerializer)
 
+  def authFormats[T <: AnyRef](userOption: Option[T])(implicit mf: Manifest[T]): SwaggerFormats = SwaggerSerializers.defaultFormats ++ Seq(
+    new AuthOperationSerializer[T](userOption),
+    new AuthEndpointSerializer[T],
+    new AuthApiSerializer[T]
+  )
+
   class HttpMethodSerializer extends CustomSerializer[HttpMethod](implicit formats => ({
       case JString(method) => HttpMethod(method)
     },{
@@ -462,5 +468,99 @@ object SwaggerSerializers {
       ("keyname" -> keyname)
 
   }))
+
+  class AuthOperationSerializer[T <: AnyRef:Manifest](userOption: Option[T]) extends CustomSerializer[AuthOperation[T]](implicit formats => ({
+      case value =>
+        AuthOperation[T](
+          (value \ "method").extract[HttpMethod],
+          readDataType(value),
+          (value \ "summary").extract[String],
+          (value \ "position").extract[Int],
+          (value \ "notes").extractOpt[String].flatMap(_.blankOption),
+          (value \ "deprecated").extractOpt[Boolean] getOrElse false,
+          (value \ "nickname").extractOpt[String].flatMap(_.blankOption),
+          (value \ "parameters").extract[List[Parameter]],
+          (value \ "responseMessages").extract[List[ResponseMessage[_]]],
+          (value \ "consumes").extract[List[String]],
+          (value \ "produces").extract[List[String]],
+          (value \ "protocols").extract[List[String]],
+          (value \ "authorizations").extract[List[String]]
+        )
+    }, {
+      case obj: AuthOperation[T] if obj.allows(userOption) =>
+        val json = ("method" -> Extraction.decompose(obj.method)) ~
+                  ("summary" -> obj.summary) ~
+                  ("position" -> obj.position) ~
+                  ("notes" -> obj.notes.flatMap(_.blankOption).getOrElse("")) ~
+                  ("deprecated" -> obj.deprecated) ~
+                  ("nickname" -> obj.nickname) ~
+                  ("parameters" -> Extraction.decompose(obj.parameters)) ~
+                  ("responseMessages" -> (if (obj.responseMessages.nonEmpty) Some(Extraction.decompose(obj.responseMessages)) else None))
+
+        val consumes = dontAddOnEmpty("consumes", obj.consumes)_
+        val produces = dontAddOnEmpty("produces", obj.produces)_
+        val protocols = dontAddOnEmpty("protocols", obj.protocols)_
+        val authorizations = dontAddOnEmpty("authorizations", obj.authorizations)_
+        val r = (consumes andThen produces andThen authorizations andThen protocols)(json)
+        r merge writeDataType(obj.responseClass)
+      case obj: AuthOperation[_] => JNothing
+    }))
+    class AuthEndpointSerializer[T <: AnyRef:Manifest] extends CustomSerializer[AuthEndpoint[T]](implicit formats => ({
+      case value =>
+        AuthEndpoint[T](
+          (value \ "path").extract[String],
+          (value \ "description").extractOpt[String].flatMap(_.blankOption),
+          (value \ "operations").extract[List[AuthOperation[T]]])
+    }, {
+      case obj: AuthEndpoint[T] =>
+        ("path" -> obj.path) ~
+        ("description" -> obj.description) ~
+        ("operations" -> Extraction.decompose(obj.operations))
+    }))
+    class AuthApiSerializer[T <: AnyRef:Manifest] extends CustomSerializer[AuthApi[T]](implicit formats => ({
+      case json =>
+        AuthApi[T](
+          (json \ "apiVersion").extractOrElse(""),
+          (json \ "swaggerVersion").extractOrElse(""),
+          (json \ "resourcePath").extractOrElse(""),
+          (json \ "description").extractOpt[String].flatMap(_.blankOption),
+          (json \ "produces").extractOrElse(List.empty[String]),
+          (json \ "consumes").extractOrElse(List.empty[String]),
+          (json \ "protocols").extractOrElse(List.empty[String]),
+          (json \ "apis").extractOrElse(List.empty[AuthEndpoint[T]]),
+          (json \ "models").extractOpt[Map[String, Model]].getOrElse(Map.empty),
+          (json \ "authorizations").extractOrElse(List.empty[String]),
+          (json \ "position").extractOrElse(0)
+        )
+    }, {
+      case x: AuthApi[T] =>
+        ("apiVersion" -> x.apiVersion) ~
+        ("swaggerVersion" -> x.swaggerVersion) ~
+        ("resourcePath" -> x.resourcePath) ~
+        ("produces" -> (x.produces match {
+          case Nil => JNothing
+          case e => Extraction.decompose(e)
+        })) ~
+        ("consumes" -> (x.consumes match {
+          case Nil => JNothing
+          case e => Extraction.decompose(e)
+        })) ~
+        ("protocols" -> (x.protocols match {
+          case Nil => JNothing
+          case e => Extraction.decompose(e)
+        })) ~
+        ("authorizations" -> (x.authorizations match {
+          case Nil => JNothing
+          case e => Extraction.decompose(e)
+        })) ~
+        ("apis" -> (x.apis match {
+          case Nil => JNothing
+          case e => Extraction.decompose(e)
+        })) ~
+        ("models" -> (x.models match {
+          case x if x.isEmpty => JNothing
+          case e => Extraction.decompose(e)
+        }))
+    }))
 }
 

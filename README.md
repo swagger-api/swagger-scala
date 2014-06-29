@@ -56,47 +56,17 @@ When you do generate the json as api description you should make use of the json
 For example to render the index json you can use this method: 
 
 ```scala
-implicit formats: Formats = com.wordnik.swagger.SwaggerSerializers.defaultFormats
-
-def renderIndex[A <: SwaggerApi[_]](swagger: SwaggerEngine[A], mkPath: String => String): JValue = {
-  val docs = swagger.docs.toList.asInstanceOf[List[A]]
-  ("apiVersion" -> swagger.apiVersion) ~
-  ("swaggerVersion" -> swagger.swaggerVersion) ~
-  ("apis" ->
-    (docs.filter(_.apis.nonEmpty).toList map {
-      doc =>
-        ("path" -> mkPath(doc.resourcePath)) ~
-        ("description" -> doc.description)
-    })) ~
-  ("authorizations" -> swagger.authorizations.foldLeft(JObject(Nil)) { (acc, auth) =>
-    acc merge JObject(List(auth.`type` -> Extraction.decompose(auth)))
-  }) ~
-  ("info" -> Option(swagger.apiInfo).map(Extraction.decompose(_)))
-}
+implicit formats: SwaggerFormats  = com.wordnik.swagger.SwaggerSerializers.defaultFormats
+val mySwagger = new Swagger(apiVersion, apiInfo)
+Swagger.renderIndex(mySwagger, path => "/" + path)
 ```
 
 And to render the description of a single doc you can use this:
  
 ```scala
-implicit formats: Formats = com.wordnik.swagger.SwaggerSerializers.defaultFormats
-
-def renderDoc[A <: SwaggerApi[_]](swagger: SwaggerEngine[A], doc: A, basePath: String): JValue = {
-  def dontAddOnEmpty(key: String, value: List[String])(json: JValue) = {
-    val v: JValue = if (value.nonEmpty) key -> value else JNothing
-    json merge v
-  }
-
-  val json = Extraction.decompose(doc) merge
-    ("basePath" -> basePath) ~
-    ("swaggerVersion" -> swagger.swaggerVersion) ~
-    ("apiVersion" -> swagger.apiVersion)
-  
-  val consumes = dontAddOnEmpty("consumes", doc.consumes)_
-  val produces = dontAddOnEmpty("produces", doc.produces)_
-  val protocols = dontAddOnEmpty("protocols", doc.protocols)_
-  val authorizations = dontAddOnEmpty("authorizations", doc.authorizations)_
-  
-  (consumes andThen produces andThen protocols andThen authorizations)(json)
-}
+implicit formats: SwaggerFormats = com.wordnik.swagger.SwaggerSerializers.defaultFormats
+implicit formats: SwaggerFormats  = com.wordnik.swagger.SwaggerSerializers.defaultFormats
+val mySwagger = new Swagger(apiVersion, apiInfo)
+mySwagger.doc("/users").fold(JNothing)(Swagger.renderDoc(mySwagger, _, "/")) 
 ```
 

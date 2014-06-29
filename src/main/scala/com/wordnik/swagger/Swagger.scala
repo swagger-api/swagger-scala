@@ -4,10 +4,13 @@ package swagger
 import java.lang.reflect.Field
 import java.util.{Date => JDate}
 
+import com.wordnik.swagger.SwaggerSerializers.SwaggerFormats
 import com.wordnik.swagger.reflect._
 import com.wordnik.swagger.runtime.annotations.{ApiEnum, ApiModel, ApiModelProperty}
 import org.joda.time._
 import org.joda.time.format.ISODateTimeFormat
+import org.json4s._
+import JsonDSL._
 
 trait SwaggerEngine[T <: SwaggerApi[_]] {
   def swaggerVersion: String 
@@ -36,6 +39,41 @@ object Swagger {
   val containerTypes = Set("Array", "List", "Set")
   val SpecVersion = "1.2"
   val Iso8601Date = ISODateTimeFormat.dateTime.withZone(DateTimeZone.UTC)
+
+  def renderIndex[A <: SwaggerApi[_]](swagger: SwaggerEngine[A], mkPath: String => String)(implicit formats: SwaggerFormats): JValue = {
+    val docs = swagger.docs.toList
+    ("apiVersion" -> swagger.apiVersion) ~
+    ("swaggerVersion" -> swagger.swaggerVersion) ~
+    ("apis" ->
+      (docs.filter(_.apis.nonEmpty).toList map {
+        doc =>
+          ("path" -> mkPath(doc.resourcePath)) ~
+          ("description" -> doc.description)
+      })) ~
+    ("authorizations" -> swagger.authorizations.foldLeft(JObject(Nil)) { (acc, auth) =>
+      acc merge JObject(List(auth.`type` -> Extraction.decompose(auth)))
+    }) ~
+    ("info" -> Option(swagger.apiInfo).map(Extraction.decompose(_)))
+  }
+
+  def renderDoc[A <: SwaggerApi[_]](swagger: SwaggerEngine[A], doc: A, basePath: String)(implicit formats: SwaggerFormats): JValue = {
+    val json = Extraction.decompose(doc) merge
+      ("basePath" -> basePath) ~
+      ("swaggerVersion" -> swagger.swaggerVersion) ~
+      ("apiVersion" -> swagger.apiVersion)
+
+    val consumes = dontAddOnEmpty("consumes", doc.consumes)_
+    val produces = dontAddOnEmpty("produces", doc.produces)_
+    val protocols = dontAddOnEmpty("protocols", doc.protocols)_
+    val authorizations = dontAddOnEmpty("authorizations", doc.authorizations)_
+
+    (consumes andThen produces andThen protocols andThen authorizations)(json)
+  }
+
+  private[this] def dontAddOnEmpty(key: String, value: List[String])(json: JValue) = {
+    val v: JValue = if (value.nonEmpty) key -> value else JNothing
+    json merge v
+  }
 
   def collectModels[T: Manifest](alreadyKnown: Set[Model]): Set[Model] = collectModels(Reflector.scalaTypeOf[T], alreadyKnown)
   private[swagger] def collectModels(tpe: ScalaType, alreadyKnown: Set[Model], known: Set[ScalaType] = Set.empty): Set[Model] = {
@@ -435,9 +473,8 @@ case class AuthorizationCodeGrant(
   tokenEndpoint: TokenEndpoint) extends GrantType {
   def `type` = "authorization_code"
 }
+
 trait SwaggerOperation {
-  @deprecated("Swagger spec 1.2 renamed `httpMethod` to `method`.", "2.2.2")
-  def httpMethod: HttpMethod = method
   def method: HttpMethod
   def responseClass: DataType
   def summary: String
@@ -449,12 +486,10 @@ trait SwaggerOperation {
   def protocols: List[String]
   def authorizations: List[String]
   def parameters: List[Parameter]
-  @deprecated("Swagger spec 1.2 renamed `errorResponses` to `responseMessages`.", "2.2.2")
-  def errorResponses: List[ResponseMessage[_]] = responseMessages
   def responseMessages: List[ResponseMessage[_]]
-//  def supportedContentTypes: List[String]
   def position: Int
 }
+
 case class Operation(method: HttpMethod,
                      responseClass: DataType,
                      summary: String,
@@ -486,3 +521,35 @@ trait ResponseMessage[T] {
   def message: T
 }
 case class StringResponseMessage(code: Int, message: String) extends ResponseMessage[String]
+
+case class AuthApi[TypeForUser <: AnyRef](
+                        apiVersion: String,
+                        swaggerVersion: String,
+                        resourcePath: String,
+                        description: Option[String] = None,
+                        produces: List[String] = Nil,
+                        consumes: List[String] = Nil,
+                        protocols: List[String] = Nil,
+                        apis: List[AuthEndpoint[TypeForUser]] = Nil,
+                        models: Map[String, Model] = Map.empty,
+                        authorizations: List[String] = Nil,
+                        position: Int = 0) extends SwaggerApi[AuthEndpoint[TypeForUser]]
+
+case class AuthEndpoint[TypeForUser <: AnyRef](path: String,
+                                               description: Option[String] = None,
+                                               operations: List[AuthOperation[TypeForUser]] = Nil) extends SwaggerEndpoint[AuthOperation[TypeForUser]]
+
+case class AuthOperation[TypeForUser <: AnyRef](method: HttpMethod,
+                                                responseClass: DataType,
+                                                summary: String,
+                                                position: Int,
+                                                notes: Option[String] = None,
+                                                deprecated: Boolean = false,
+                                                nickname: Option[String] = None,
+                                                parameters: List[Parameter] = Nil,
+                                                responseMessages: List[ResponseMessage[_]] = Nil,
+                                                consumes: List[String] = Nil,
+                                                produces: List[String] = Nil,
+                                                protocols: List[String] = Nil,
+                                                authorizations: List[String] = Nil,
+												                        allows: Option[TypeForUser] => Boolean = (_: Option[TypeForUser]) => true) extends SwaggerOperation
